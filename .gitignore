@@ -39,3 +39,10 @@ venv/
 
 # Claude Code agent worktrees
 .claude/
+
+# SDK cache and retained signing material (keys belong outside this repository)
+.cache/
+*.key
+*.key.pub
+*.p12
+*.pem

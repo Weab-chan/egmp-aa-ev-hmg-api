@@ -1,0 +1,39 @@
+name: Canadian Ioniq 6 and EV6 integration
+
+on:
+  push:
+    branches: [main, ev6-can-260206-preparation]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Verified HMG-API 1.1.0-beta.1 SDK
+        run: python3 tools/fetch-sdk.py --out .cache/hmgapi-sdk
+      - name: Android build tools
+        run: |
+          if ! ls "$ANDROID_HOME"/build-tools/*/d8 >/dev/null 2>&1 || ! ls "$ANDROID_HOME"/platforms/android-*/android.jar >/dev/null 2>&1; then
+            (yes || true) | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'build-tools;35.0.0' 'platforms;android-35' >/dev/null
+          fi
+      - name: Build and integration tests
+        env:
+          HMGAPI_SDK: ${{ github.workspace }}/.cache/hmgapi-sdk
+        run: |
+          sh hmgapi-mod/build.sh
+          sh hmgapi-mod/test/run.sh
+          HMGAPI_FLOOR_POINTS="$HMGAPI_SDK/points.txt" python3 "$HMGAPI_SDK/bin/check-points.py" hmgapi-mod
+          sh "$HMGAPI_SDK/bin/check-scripts.sh" build/mod/egmp-aa-ev
+      # Test packages use disposable keys and must never be offered for car installation.
+      # Private releases are signed locally with the retained author key; see FORK-BUILD.md.

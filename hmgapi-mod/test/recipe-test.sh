@@ -1,6 +1,6 @@
 #!/bin/sh
 # tools/mkrecipe.py and NativeCheck on synthetic libraries (no car files): the
-# US Ioniq 5 260507 and Ioniq 6 260903 recipes' patch lines come out of the
+# US Ioniq 5 260507 and Ioniq 6 US 260903 / CAN 260206 recipes' patch lines come out of the
 # tool unchanged; a recipe for a build with the sites elsewhere
 # (--sites/--queue) is refused at the wrong offsets and made at the right ones;
 # NativeCheck, reading the recipes as the zygote does, finds the recipe whose
@@ -40,7 +40,7 @@ EOF
 python3 -I $M "$T/ceev.so" "$T/recipes/ev-sensor-dbfe7bd2.recipe" --id ev-sensor-dbfe7bd2 \
     --sites 0x144e82,0xb14e6,0xb18ac --queue 0xaf50a --avoid "$T/aa-tbt-dbfe7bd2.recipe" >/dev/null
 [ "$(grep '^patch' "$T/recipes/ev-sensor-dbfe7bd2.recipe")" = "$(grep '^patch' hmgapi-mod/recipes/ev-sensor-dbfe7bd2.recipe)" ] \
-    && ok "Ioniq 6 US 260903: the shipped recipe's patch lines" || bad "Ioniq 6 US 260903 patch lines differ from the shipped recipe"
+    && ok "Ioniq 6 US 260903 / CAN 260206: the shipped recipe's patch lines" || bad "Ioniq 6 US 260903 / CAN 260206 patch lines differ from the shipped recipe"
 if python3 -I $M "$T/other.so" "$T/x.recipe" >/dev/null 2>&1; then bad "another build at the US offsets was accepted"; else ok "another build at the US offsets: refused"; fi
 if python3 -I $M "$T/other.so" "$T/x.recipe" --sites 0x145002,0xbb3a2,0xbb73c --queue 0xb1a70 >/dev/null 2>&1; then bad "--sites without --id accepted"; else ok "--sites needs its own --id"; fi
 python3 -I $M "$T/other.so" "$T/recipes/ev-sensor-0ther000.recipe" --id ev-sensor-0ther000 \

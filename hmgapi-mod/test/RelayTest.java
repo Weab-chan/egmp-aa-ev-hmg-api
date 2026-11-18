@@ -32,6 +32,9 @@ public final class RelayTest {
         public String command(String name, String... a) throws Exception {
             calls.add(name + " " + String.join(" ", a));
             if (!"conditioning".equals(name)) throw new Exception("not declared in mod.json (vehicle commands): " + name);
+            if ("status".equals(a[0])) {
+                return holder == null ? "ok " + (timedOut ? "timed_out" : "off") : "ok active (" + holder + ")";
+            }
             if ("stop".equals(a[0])) {
                 if (holder == null) return "ok not conditioning";
                 if (!(auto && "egmp-aa-ev".equals(holder))) manualStop = true;
@@ -62,7 +65,7 @@ public final class RelayTest {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         FakeHmgApi api = new FakeHmgApi();
         RelayService.Owned own = new RelayService.Owned(null);
         RelayService.Owned own2 = new RelayService.Owned(null);
@@ -123,6 +126,60 @@ public final class RelayTest {
         r = RelayService.answer(patched, own3, "route 20 12");
         check("a route refusal naming another holder: err, and not ours any more: " + r, r.startsWith("err refused: only") && !own3.owned);
         check("... so the cancel that follows isn't sent", RelayService.answer(patched, own3, "stop").equals("ok not ours to stop"));
+
+        // A persisted journal can outlive HMG-API's holder. No route update is
+        // required between takeover/timeout and recovery's cancellation.
+        RelayService.Owned stale = new RelayService.Owned(null);
+        stale.set(true);
+        other.calls.clear();
+        r = RelayService.answer(other, stale, "stop");
+        check("stale ownership cannot stop a replacement holder: " + r,
+                r.equals("ok not ours to stop") && "launchpad".equals(other.holder)
+                && other.calls.equals(java.util.Arrays.asList("conditioning status")) && !stale.owned);
+        java.io.File journal = java.io.File.createTempFile("egmp-relay-owned-", ".test");
+        try {
+            RelayService.Owned recovered = new RelayService.Owned(journal);
+            check("relay restart restores the ownership journal", recovered.owned);
+            other.calls.clear();
+            r = RelayService.answer(other, recovered, "stop");
+            check("restart journal is checked against the current holder",
+                    r.equals("ok not ours to stop") && !recovered.owned && !journal.exists()
+                    && other.calls.equals(java.util.Arrays.asList("conditioning status"))
+                    && "launchpad".equals(other.holder));
+        } finally { journal.delete(); }
+        stale.set(true);
+        api.calls.clear();
+        r = RelayService.answer(api, stale, "stop");
+        check("core timeout is detected before cancellation: " + r,
+                r.equals("ok not ours to stop")
+                && api.calls.equals(java.util.Arrays.asList("conditioning status")) && !stale.owned);
+
+        final List<String> statusCalls = new ArrayList<String>();
+        RelayService.Commands unavailable = new RelayService.Commands() {
+            public String command(String name, String... a) throws Exception {
+                statusCalls.add(a[0]);
+                throw new Exception("status unavailable");
+            }
+        };
+        stale.set(true);
+        r = RelayService.answer(unavailable, stale, "stop");
+        check("unreadable status sends no stop and keeps journal for retry",
+                r.startsWith("err") && stale.owned && statusCalls.equals(java.util.Arrays.asList("status")));
+        RelayService.Commands unknownStatus = new RelayService.Commands() {
+            public String command(String name, String... a) throws Exception {
+                statusCalls.add(a[0]);
+                return "ok future-state (egmp-aa-ev)";
+            }
+        };
+        statusCalls.clear();
+        r = RelayService.answer(unknownStatus, stale, "stop");
+        check("unknown status sends no stop and keeps journal for retry",
+                r.startsWith("err") && stale.owned && statusCalls.equals(java.util.Arrays.asList("status")));
+        check("owned waiting and requested states can be cancelled",
+                RelayService.holdsRequest("ok waiting (egmp-aa-ev)")
+                && RelayService.holdsRequest("ok requested (egmp-aa-ev)"));
+        check("ending states without a holder aren't ours",
+                !RelayService.holdsRequest("ok ended") && !RelayService.holdsRequest("ok stopping"));
 
         check("km out of range", RelayService.answer(api, own, "start 2047 20").startsWith("err"));
         check("minutes out of range", RelayService.answer(api, own, "route 10 1023").startsWith("err"));

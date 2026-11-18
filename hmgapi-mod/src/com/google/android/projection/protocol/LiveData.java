@@ -68,10 +68,12 @@ final class LiveData {
         }
         if (t != null) {
             t.interrupt();
-            try {
-                t.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            if (t != Thread.currentThread()) {
+                try {
+                    t.join(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
             Log.i(TAG, "stopped");
         }
@@ -83,6 +85,9 @@ final class LiveData {
                 EvCar.pollNav();
                 Out out;
                 synchronized (LOCK) {
+                    if (!sRunning || sThread != Thread.currentThread()) {
+                        break;
+                    }
                     out = sOut;
                 }
                 if (out == null) {
@@ -91,6 +96,13 @@ final class LiveData {
                 send(out, EvCar.hev(HEV_DISPLAY_SOC, MAX_AGE_MS), EvCar.dteRaw(), EvCar.hev(HEV_ODOMETER, MAX_AGE_MS));
             } catch (Throwable t) {
                 Log.w(TAG, "send failed: " + t);
+            }
+            synchronized (LOCK) {
+                // An old native send may finish after stop's bounded join.
+                // It must not resume polling or borrow a reconnect's output.
+                if (!sRunning || sThread != Thread.currentThread()) {
+                    break;
+                }
             }
             try {
                 Thread.sleep(PERIOD_MS);

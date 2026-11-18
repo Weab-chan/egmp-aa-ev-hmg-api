@@ -63,7 +63,8 @@ public final class HmgApiEntry extends ModEntry {
     }
 
     static boolean precondOn() {
-        return on("preconditioning");
+        ModContext m = sMod;
+        return m != null && m.enabled() && m.settingBoolean("preconditioning", false);
     }
 
     static boolean liveDataOn() {
@@ -74,6 +75,7 @@ public final class HmgApiEntry extends ModEntry {
     @Override
     public void zygoteInit(ModContext mod) {
         NativeCheck.load(new java.io.File(mod.dir, "recipes"));
+        SensorLifecycle.verifyStock(mod);
     }
 
     @Override
@@ -87,6 +89,7 @@ public final class HmgApiEntry extends ModEntry {
             mod.error("GPM isn't fully mapped on this car: EV routing stays off", null);
             return;
         }
+        if (!SensorLifecycle.install(mod, app)) return;
         if (mod.settingBoolean("energy_model", true)) {
             mod.nativePatch(app, "libautoreceiver_infobank.so");
         }
@@ -94,6 +97,8 @@ public final class HmgApiEntry extends ModEntry {
             EvDriveLog.start();
         }
         final ClassLoader cl = app.classLoader;
+        final java.util.Map<MethodHook.Param, SensorLifecycle.Session> initializing =
+                java.util.Collections.synchronizedMap(new java.util.WeakHashMap<MethodHook.Param, SensorLifecycle.Session>());
 
         mod.hook(cl, "gpm.sensor_source.init", new MethodHook() {
             /**
@@ -104,6 +109,12 @@ public final class HmgApiEntry extends ModEntry {
             @Override
             protected void beforeHookedMethod(Param p) {
                 try {
+                    SensorLifecycle.Session session = SensorLifecycle.begin(p.thisObject);
+                    if (session == null) {
+                        mod.log("SensorSource object reused; EV sensor senders stay off for that object");
+                        return;
+                    }
+                    initializing.put(p, session);
                     if (modelOn() && p.args[2] instanceof int[] && NativeCheck.patched()) {
                         p.args[2] = withSensor((int[]) p.args[2], SENSOR_EV_MODEL);
                     }
@@ -118,18 +129,22 @@ public final class HmgApiEntry extends ModEntry {
 
             @Override
             protected void afterHookedMethod(Param p) {
+                final SensorLifecycle.Session session = initializing.remove(p);
+                if (session == null) return;
                 try {
                     if (!Boolean.TRUE.equals(p.getResult())) {
+                        SensorLifecycle.close(session);
                         return;   // GPM's own init failed: no session to add to
                     }
+                    if (!session.activate()) return; // shutdown won the race with init
                     if (precondOn()) {
                         Precond.onSessionStart(app.context);
                     }
                     if (modelOn()) {
-                        startSender(mod, p.thisObject);
+                        startSender(mod, p.thisObject, session);
                     }
                     if (liveDataOn()) {
-                        startLiveData(p.thisObject);
+                        startLiveData(p.thisObject, session);
                     }
                 } catch (Throwable t) {
                     mod.error("session start", t);
@@ -138,8 +153,8 @@ public final class HmgApiEntry extends ModEntry {
         });
 
         // A clean end calls destroy; a phone that's just gone (Wi-Fi off, ping
-        // timeout) only onDisconnected. Both stop the sender before GPM frees
-        // the connection's native objects.
+        // timeout) only onDisconnected. These stop the workers. The dedicated
+        // SensorSource shutdown guard excludes sends before native teardown.
         MethodHook ended = new MethodHook() {
             @Override
             protected void beforeHookedMethod(Param p) {
@@ -175,7 +190,7 @@ public final class HmgApiEntry extends ModEntry {
         });
         mod.log("EV routing hooks in " + app.processName + " (energy model "
                 + (mod.settingBoolean("energy_model", true) ? "on" : "off") + ", preconditioning "
-                + (mod.settingBoolean("preconditioning", true) ? "on" : "off") + ", EV log "
+                + (precondOn() ? "on" : "off") + ", EV log "
                 + (mod.settingBoolean("ev_log", true) ? "on" : "off") + ", live data "
                 + (mod.settingBoolean("live_data", true) ? "on" : "off") + ")");
     }
@@ -186,7 +201,7 @@ public final class HmgApiEntry extends ModEntry {
      * bytes are really in place: unpatched, that call would send our bytes as a
      * diagnostics report.
      */
-    static void startSender(ModContext mod, final Object sensorSource) throws Exception {
+    static void startSender(ModContext mod, final Object sensorSource, final SensorLifecycle.Session session) throws Exception {
         if (!NativeCheck.patched()) {
             mod.error("energy model off: the Android Auto library patch isn't in place ("
                     + NativeCheck.why() + ")", null);
@@ -195,9 +210,13 @@ public final class HmgApiEntry extends ModEntry {
         final Method send = reportDiagnostics(sensorSource);
         EvModelSender.start(new EvModelSender.Sink() {
             @Override
-            public int send(byte[] msg) throws Exception {
-                Object r = send.invoke(sensorSource, (Object) msg);
-                return r instanceof Integer ? ((Integer) r).intValue() : 0;
+            public int send(final byte[] msg) throws Exception {
+                return session.call(new SensorLifecycle.Call() {
+                    public int run() throws Exception {
+                        Object r = send.invoke(sensorSource, (Object) msg);
+                        return r instanceof Integer ? ((Integer) r).intValue() : 0;
+                    }
+                });
             }
         });
     }
@@ -207,19 +226,29 @@ public final class HmgApiEntry extends ModEntry {
      * fuel report by its native call (so an unknown range is left out rather than sent
      * as 0), the odometer by its Java wrapper (km).
      */
-    static void startLiveData(final Object sensorSource) throws Exception {
+    static void startLiveData(final Object sensorSource, final SensorLifecycle.Session session) throws Exception {
         final Method fuel = declared(sensorSource, "nativeReportFuelData",
                 boolean.class, int.class, boolean.class, int.class, boolean.class, boolean.class);
         final Method odo = declared(sensorSource, "reportOdometerData", double.class);
         LiveData.start(new LiveData.Out() {
             @Override
-            public void fuel(int percent, int rangeMeters, boolean low) throws Exception {
-                fuel.invoke(sensorSource, true, percent, rangeMeters >= 0, Math.max(rangeMeters, 0), true, low);
+            public void fuel(final int percent, final int rangeMeters, final boolean low) throws Exception {
+                session.call(new SensorLifecycle.Call() {
+                    public int run() throws Exception {
+                        fuel.invoke(sensorSource, true, percent, rangeMeters >= 0, Math.max(rangeMeters, 0), true, low);
+                        return 0;
+                    }
+                });
             }
 
             @Override
-            public void odometer(double km) throws Exception {
-                odo.invoke(sensorSource, km);
+            public void odometer(final double km) throws Exception {
+                session.call(new SensorLifecycle.Call() {
+                    public int run() throws Exception {
+                        odo.invoke(sensorSource, km);
+                        return 0;
+                    }
+                });
             }
         });
     }
@@ -299,7 +328,7 @@ public final class HmgApiEntry extends ModEntry {
         if (!mod.settingBoolean("live_data", true)) {
             LiveData.stop();
         }
-        if (!mod.settingBoolean("preconditioning", true)) {
+        if (!mod.settingBoolean("preconditioning", false)) {
             Precond.stop();
         }
     }

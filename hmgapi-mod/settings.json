@@ -7,15 +7,15 @@
       "default": true,
       "title": "Battery data for Google Maps (EV energy model)",
       "apply": "restart",
-      "description": "Sends Maps the battery's real energy, its learned usable capacity, charge curves and the outside temperature every 5 s during Android Auto, for its arrival charge and charging stops. Needs an Android Auto library build this mod supports (Ioniq 5 US 260507 or Ioniq 6 US 260903)."
+      "description": "Sends Maps live battery energy, learned usable capacity, charge curves and outside temperature for arrival charge and charging stops. Supports the verified library fingerprint on Ioniq 6 Canada 260206; the EV feature and Ioniq 5-derived calibration still need on-car validation."
     },
     {
       "key": "preconditioning",
       "type": "toggle",
-      "default": true,
+      "default": false,
       "title": "Precondition the battery on the way to a DC fast charger",
       "apply": "restart",
-      "description": "When Maps (Android Auto) guides to a charging stop, asks the car to warm or cool the battery, with the real distance and time to it (the thresholds are below). Off too when the car's own Battery Conditioning setting is off. Needs the route data the Wireless CarPlay + Android Auto mod's turn-by-turn adds."
+      "description": "Off for the first Ioniq 6 test. When enabled and authorized in HMG-API, asks the car to condition the battery for a Maps charging stop. This sends vehicle commands and needs separate on-car validation. Requires wireless turn-by-turn route data and the car\u2019s Battery Conditioning setting."
     },
     {
       "key": "precond_min_kw",
@@ -29,7 +29,7 @@
       "type": "number",
       "default": 60,
       "title": "Start when the charger is this many minutes away",
-      "description": "By Maps' remaining time (5-180; 60 by default). The car's battery system then times the heating from the distance and time it's sent. HMG-API stops a request if the car's indicator isn't on within 2 minutes, and automatic starts then wait for a manual one, so a shorter window (20-30) is safer until HMG-API lets a routed request wait for the car."
+      "description": "By Maps' remaining time (5-180; 60 by default). The car's battery system then times the heating from the distance and time it's sent. HMG-API stops a request if the car's indicator isn't on within 5 minutes on an EV6 or 2 minutes on the other supported models, and automatic starts then wait for a manual one, so a shorter window (20-30) is safer until HMG-API lets a routed request wait for the car."
     },
     {
       "key": "precond_arrival_m",

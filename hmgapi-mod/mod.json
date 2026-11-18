@@ -1,25 +1,27 @@
 {
   "id": "egmp-aa-ev",
-  "name": "EV routing for Android Auto (E-GMP)",
-  "version": "0.5.0",
-  "hmgapi": ">=1.0.0",
+  "name": "EV routing for Android Auto (Ioniq 6 + EV6 Canada test)",
+  "version": "0.5.1-beta.102",
+  "hmgapi": ">=1.1.0-beta.1",
   "authors": [
     "willemcvu",
     "AwsomeFox"
   ],
   "license": "AGPL-3.0",
-  "description": "Needs HMG-API's Wireless CarPlay + Android Auto mod. Google Maps EV routing over Android Auto: battery and range, charge curves, EV plugs, battery preconditioning for DC chargers.",
-  "requires": ["wireless-carplay-aa >=2.1.0"],
+  "description": "Canadian Ioniq 6 and Kia EV6 260206 test add-on for the working wireless beta.101 setup. Live battery data and Google Maps EV routing. Preconditioning defaults off; existing settings survive updates, so turn it off before the first test. This combined build needs in-car validation.",
+  "requires": [
+    "wireless-carplay-aa >=2.2.0-beta.101"
+  ],
   "system": [
     {
-      "model": ["NEEV", "NEEV23", "NEEV23SE"],
-      "region": "USA",
-      "firmware": [">=260507"]
-    },
-    {
-      "model": ["CEEV"],
-      "region": "USA",
-      "firmware": ["260903"]
+      "model": [
+        "CEEV",
+        "CVEV"
+      ],
+      "region": "CAN",
+      "firmware": [
+        "260206"
+      ]
     }
   ],
   "hooks": {
@@ -40,13 +42,22 @@
     }
   },
   "projection": {
-    "aa_fuel_types": [10],
-    "aa_ev_connectors": [4, 1]
+    "aa_fuel_types": [
+      10
+    ],
+    "aa_ev_connectors": [
+      4,
+      1
+    ]
   },
   "vehicle": {
-    "commands": ["conditioning"]
+    "commands": [
+      "conditioning"
+    ]
   },
-  "usb": ["egmp-aa-ev-logs"],
+  "usb": [
+    "egmp-aa-ev-logs"
+  ],
   "services": [
     {
       "name": "relay",
@@ -61,7 +72,16 @@
     }
   ],
   "logs": {
-    "tags": ["EvModelSender", "EvDriveLog", "EvLogger", "EvCar", "EvPrecond"],
-    "match": ["[egmp-aa-ev]"]
+    "tags": [
+      "EvModelSender",
+      "EvDriveLog",
+      "EvLogger",
+      "EvCar",
+      "EvPrecond",
+      "EvLiveData"
+    ],
+    "match": [
+      "[egmp-aa-ev]"
+    ]
   }
 }

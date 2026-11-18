@@ -34,8 +34,8 @@ import android.util.Log;
  * reads this sender's state through the static getters (aaActive, roadA...).
  *
  * Threading: all sends happen holding LOCK; stop() takes LOCK and joins the
- * thread, and shutdown() calls stop() before nativeShutdown(), so a send never
- * touches the native object after it is freed.
+ * thread. The sink also holds its SensorLifecycle generation gate during the
+ * JNI call; the shutdown hook closes/drains it before native free.
  */
 public final class EvModelSender {
     private static final String TAG = "EvModelSender";
@@ -132,10 +132,13 @@ public final class EvModelSender {
             sRoadA = Float.NaN;
         }
         if (t != null) {
-            try {
-                t.join(2000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            t.interrupt();
+            if (t != Thread.currentThread()) {
+                try {
+                    t.join(2000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             }
             Log.i(TAG, "stopped");
         }
@@ -161,7 +164,9 @@ public final class EvModelSender {
     private static void loop() {
         while (true) {
             synchronized (LOCK) {
-                if (!sRunning) {
+                // A reconnect can start a new worker while an old one is still
+                // unwinding. That old worker must never send for the new session.
+                if (!sRunning || sThread != Thread.currentThread()) {
                     return;
                 }
                 if (sSource != null) {
@@ -175,7 +180,7 @@ public final class EvModelSender {
             try {
                 Thread.sleep(PERIOD_MS);
             } catch (InterruptedException e) {
-                // ignore
+                return;
             }
         }
     }

@@ -1,160 +1,167 @@
 #!/bin/sh
-# The built mod (build/mod/egmp-aa-ev, from hmgapi-mod/build.sh) through HMG-API's
-# own engine on a desktop JVM, on fake US Ioniq 5 units (260507 and 260903) and,
-# when that map is present in the HMG-API checkout, an Ioniq 6 on 260903. The
-# test uses HMG-API's real hook maps: the mod.json is valid, every hook point it
-# declares is mapped and planned, its services, command, USB folder and Android
-# Auto settings are taken, and each library recipe parses and stays clear of
-# the Wireless mod's recipe for the same library build.
-#   HMGAPI=<HMG-API checkout> sh hmgapi-mod/test/engine-test.sh
+# Released SDK Engine plan/apply for both Canadian CEEV/CVEV 260206 maps and
+# Wireless beta101 declarations. Only temporary host files are changed. See
+# fixtures/README.md: stand-ins are not executable firmware or hook payloads.
 set -e
 cd "$(dirname "$0")/../.."
 REPO=$PWD
-HMGAPI=${HMGAPI:-$REPO/../HMG-API}
-HMGAPI=$(cd "$HMGAPI" && pwd)
+. "$REPO/hmgapi-mod/tools/sdk-env.sh"
 MOD=$REPO/build/mod/egmp-aa-ev
+FIX=$REPO/hmgapi-mod/test/fixtures
 [ -f "$MOD/hooks.jar" ] || { echo "build the mod first: sh hmgapi-mod/build.sh"; exit 1; }
-CP=$(mktemp -d); T=$(mktemp -d)
-trap 'rm -rf "$CP" "$T"' EXIT
-javac --release 8 -Xlint:-options -nowarn -d "$CP" "$HMGAPI"/core/runtime/java/hmgapi/engine/*.java
+T=$(mktemp -d)
+trap 'rm -rf "$T"' EXIT
 fail=0
-has() { case "$3" in *"$2"*) echo "ok    $1" ;; *) echo "FAIL  $1: wanted [$2] in:"; echo "$3" | sed 's/^/        /'; fail=1 ;; esac; }
-hasnt() { case "$3" in *"$2"*) echo "FAIL  $1: [$2] in:"; echo "$3" | sed 's/^/        /'; fail=1 ;; *) echo "ok    $1" ;; esac; }
-
-unit() {   # unit <ro.build.product>: a fake head unit with the maps and the mod
-    R=$T/$1; rm -rf "$R"
-    mkdir -p "$R/system/lib" "$R/system/app" "$R/data/hmgapi/mods" "$R/data/hmgapi/settings"
-    printf 'ro.build.product=%s\nro.build.version.release=4.4.2\n' "$1" > "$R/system/build.prop"
-    cp -r "$HMGAPI/maps" "$R/data/hmgapi/maps"
-    python3 -c 'import glob,json,sys; [print(p["id"]) for f in sorted(glob.glob(sys.argv[1]+"/core/hookpoints/*.json")) for p in json.load(open(f))["points"]]' "$HMGAPI" > "$R/data/hmgapi/maps/points.txt"
-    cp -r "$MOD" "$R/data/hmgapi/mods/egmp-aa-ev"
-    # next to HMG-API's own Wireless CarPlay + Android Auto mod, as on a car
-    cp -r "$HMGAPI/mods/wireless-carplay-aa" "$R/data/hmgapi/mods/wireless-carplay-aa"
-    # Testing maps lets this off-car fixture exercise maps that are not marked
-    # verified yet (the CEEV 260903 map itself is car-verified).
-    mkdir -p "$R/data/hmgapi/settings/allow" && touch "$R/data/hmgapi/settings/allow/testing_maps"
-    # Each map is tied to the md5s of the stock files it was made from. The fake
-    # unit gets a stand-in for each, and its copy of the maps those stand-ins'
-    # md5s, so the engine runs with the real point names (no car files here).
-    python3 - "$R" <<'PY'
-import glob, hashlib, json, os, sys
-R = sys.argv[1]
-for cj in glob.glob(R + "/data/hmgapi/maps/*/*/*/*/car.json"):
-    car = json.load(open(cj))
-    for key in ("files", "app_files"):
-        files = car.get(key)
-        if not isinstance(files, dict):
-            continue
-        for path in files:
-            f = R + path
-            os.makedirs(os.path.dirname(f), exist_ok=True)
-            if not os.path.exists(f):
-                open(f, "wb").write(("stand-in " + path).encode())
-            files[path] = hashlib.md5(open(f, "rb").read()).hexdigest()
-    json.dump(car, open(cj, "w"), indent=2)
+has() { case "$3" in *"$2"*) echo "ok    $1" ;; *) echo "FAIL  $1: wanted [$2] in:"; echo "$3"; fail=1 ;; esac; }
+hasnt() { case "$3" in *"$2"*) echo "FAIL  $1: unexpected [$2] in:"; echo "$3"; fail=1 ;; *) echo "ok    $1" ;; esac; }
+check_rc() { [ "$rc" = "$2" ] && echo "ok    $1" || { echo "FAIL  $1: exit $rc (wanted $2): $out"; fail=1; }; }
+eng() { set +e; out=$(HMGAPI_ROOT="$R" HMGAPI_HOST=1 HMGAPI_PRODUCT="$P" HMGAPI_ONEBIN=fixture java -cp "$HMGAPI_ENGINE" hmgapi.engine.Engine "$@" 2>&1); rc=$?; set -e; }
+for MODEL in CEEV CVEV; do
+case "$MODEL" in
+    CEEV) MAP=hyundai/ceev/can/260206; FIREWALL=true ;;
+    CVEV) MAP=kia/ev6/can/260206; FIREWALL=false ;;
+esac
+R=$T/$MODEL/unit
+CASE_DIR=$T/$MODEL
+P=$MODEL.CAN.0000.V015.011.260206
+echo "Testing $P (wireless firewall $FIREWALL)"
+mkdir -p "$R/data/hmgapi/mods" "$R/data/hmgapi/settings" "$R/data/hmgapi/public" \
+    "$R/system/onebin/fixture" "$R/system/etc/permissions"
+printf 'ro.build.product=%s\nro.build.version.release=4.4.2\n' "$P" > "$R/system/build.prop"
+touch "$R/data/hmgapi/public/wifi-chip"
+printf '%s\n' '-/system/etc/permissions/com.hkmc.software.wifihotspot.xml' \
+    '-/system/etc/permissions/com.hkmc.software.connectivity.carplay_wireless.xml' \
+    '-/system/etc/permissions/com.hkmc.software.connectivity.androidauto_wireless.xml' \
+    > "$R/system/onebin/fixture/featurexml.cfg"
+cp -R "$FIX/maps" "$R/data/hmgapi/maps"
+cp "$HMGAPI_SDK/points.txt" "$R/data/hmgapi/maps/points.txt"
+cp -R "$MOD" "$R/data/hmgapi/mods/egmp-aa-ev"
+cp -R "$FIX/wireless-carplay-aa" "$R/data/hmgapi/mods/wireless-carplay-aa"
+printf 'HOST FIXTURE ONLY — NOT EXECUTABLE\n' > "$R/data/hmgapi/mods/wireless-carplay-aa/hooks.jar"
+printf '{"aa_firewall":%s,"tbt":true,"tbt_standard":false}\n' "$FIREWALL" > "$R/data/hmgapi/settings/wireless-carplay-aa.json"
+cp "$R/data/hmgapi/settings/wireless-carplay-aa.json" "$CASE_DIR/wireless-settings.json"
+python3 - "$R" "$MOD" "$MAP" "$P" <<'PY'
+import hashlib, json, pathlib, sys
+root=pathlib.Path(sys.argv[1]); mod=json.loads((pathlib.Path(sys.argv[2])/'mod.json').read_text())
+carfile=root/'data/hmgapi/maps'/sys.argv[3]/'car.json'
+car=json.loads(carfile.read_text())
+for name in car['files']:
+    target=root/name.lstrip('/'); target.parent.mkdir(parents=True,exist_ok=True)
+    target.write_text('HOST STAND-IN '+name+'\n')
+    car['files'][name]=hashlib.md5(target.read_bytes()).hexdigest()
+carfile.write_text(json.dumps(car,indent=2)+'\n')
+# The published EV6 map has not been stamped globally verified. Model the
+# owner's per-unit map-check receipt with this temporary root's stand-in hashes.
+# This is fabricated HOST TEST STATE, never a real verification or shipped file.
+state=root/'data/hmgapi/state'; state.mkdir(parents=True,exist_ok=True)
+(state/'map-check.json').write_text(json.dumps({
+ 'ok':True,'folder':sys.argv[3],'files':car['files'],'host_fixture_only':True})+'\n')
+have={}
+for path in carfile.parent.glob('*.json'):
+    if path.name!='car.json': have.update(json.loads(path.read_text()))
+want=list(mod['hooks']['points'])+[
+ 'framework.car_services.hev','framework.car_services.bcm','framework.car_services.datc',
+ 'framework.hscan_adapter.service_name','framework.hev_service_stub.as_interface',
+ 'framework.hscan_service_stub.as_interface','framework.datc_service_stub.as_interface',
+ 'framework.bcm_service_stub.as_interface','framework.hev_service.hev_status','framework.hev_flag',
+ 'framework.hev_flag.battery_conditioning','framework.hev_flag.ev_ready',
+ 'framework.hscan_service.car_speed','framework.hscan_service.hv_health',
+ 'framework.bcm_service.register_listener','framework.bcm_listener','framework.bcm_listener_stub',
+ 'framework.bcm_listener_stub.as_interface','framework.runtime.load_library','framework.runtime.load']
+missing=[p for p in want if p not in have or p in car.get('missing',{})]
+assert not missing, missing
+print('ok    %s: all %d EV hook and indirect point declarations mapped'%(sys.argv[4],len(want)))
 PY
-}
-eng() { set +e; out=$(HMGAPI_ROOT=$R HMGAPI_HOST=1 HMGAPI_PRODUCT=$P java -cp "$CP" hmgapi.engine.Engine "$@" 2>&1); rc=$?; set -e; }
-
-PRODUCTS="NEEV23.USA.0000.V015.012.260507 NEEV.USA.0000.V015.012.260507 NEEV23.USA.0000.V016.010.260903"
-if [ -f "$HMGAPI/maps/hyundai/ceev/usa/260903/car.json" ]; then
-    PRODUCTS="$PRODUCTS CEEV.USA.0000.V016.010.260903"
-fi
-for P in $PRODUCTS; do
-    unit $P
-    eng plan
-    has "$P: plan runs" "egmp-aa-ev" "$out"
-    hasnt "$P: no mod.json errors, matches the car" "egmp-aa-ev: " "$(echo "$out" | grep -i 'error\|isn.t one\|must be\|needs \|matches none' || true)"
-    # (the conditioning command's own description, HMG-API 1.0.0, says when a start is refused)
-    hasnt "$P: hooks not refused" "refused" "$(echo "$out" | grep -v '^vehicle ' || true)"
-    hasnt "$P: hooks load" "won't load" "$out"
-    has "$P: shares GPM's next-turn callback with the Wireless mod" "gpm.navigation_status.next_turn: " "$out"
-    has "$P: conditioning command" "conditioning" "$out"
-    has "$P: relay service" "relay" "$out"
-    has "$P: offload service" "offload" "$out"
-    echo "$out" > "$T/plan-$P.txt"
-done
-# which cars the mod is for (mod.json "system"), by HMG-API's own check: a firmware
-# newer than any map still matches (its hooks are just off until HMG-API has that
-# map); an older one, or another model, doesn't
-sys() { HMGAPI_ROOT=$T/none HMGAPI_PRODUCT=$1 java -cp "$CP" hmgapi.engine.SystemCheck "$MOD" 2>&1 || true; }
-has "a newer firmware (261201): for this car" "ok: egmp-aa-ev supports this unit" "$(sys NEEV23.USA.0000.V017.001.261201)"
-has "NEEV23SE 260507: for this car" "ok: egmp-aa-ev supports this unit" "$(sys NEEV23SE.USA.0000.V015.012.260507)"
-has "Ioniq 6 US 260903: for this car" "ok: egmp-aa-ev supports this unit" "$(sys CEEV.USA.0000.V016.010.260903)"
-has "Ioniq 6 US newer firmware: needs a matching build" "needs firmware 260903" "$(sys CEEV.USA.0000.V017.001.261201)"
-has "older than 260507: not for this car" "needs firmware >=260507 (this unit: 250101)" "$(sys NEEV23.USA.0000.V014.005.250101)"
-has "a Kia EV6: not a supported product" "needs model" "$(sys CVEV.USA.0000.V015.012.260507)"
-has "Canada: not for this car" "needs region USA" "$(sys NEEV.CAN.0000.V015.010.260206)"
-P=NEEV23.USA.0000.V017.001.261201
-unit $P
 eng plan
-has "$P: no map yet, so its hooks are off" "egmp-aa-ev won't load" "$out"
-
-# every hook point the mod declares is in each car's map (the "all hooks are there" check)
-MAPS="$HMGAPI/maps/hyundai/neev/usa/260507 $HMGAPI/maps/hyundai/neev23/usa/260903"
-if [ -f "$HMGAPI/maps/hyundai/ceev/usa/260903/car.json" ]; then
-    MAPS="$MAPS $HMGAPI/maps/hyundai/ceev/usa/260903"
-fi
-for m in $MAPS; do
-    r=$(python3 - "$MOD/mod.json" "$m" <<'PY'
-import glob, json, sys
-mod = json.load(open(sys.argv[1]))
-have = {}
-for f in glob.glob(sys.argv[2] + "/*.json"):
-    if not f.endswith("/car.json"):
-        have.update(json.load(open(f)))
-missing = json.load(open(sys.argv[2] + "/car.json")).get("missing", {})
-want = list(mod["hooks"]["points"]) + [
-    # read or called by name through Points (HmgCar, HmgApiEntry)
-    "framework.car_services.hev", "framework.car_services.bcm", "framework.car_services.datc",
-    "framework.hscan_adapter.service_name", "framework.hev_service_stub.as_interface",
-    "framework.hscan_service_stub.as_interface", "framework.datc_service_stub.as_interface",
-    "framework.bcm_service_stub.as_interface", "framework.hev_service.hev_status", "framework.hev_flag",
-    "framework.hev_flag.battery_conditioning", "framework.hev_flag.ev_ready",
-    "framework.hscan_service.car_speed", "framework.hscan_service.hv_health",
-    "framework.bcm_service.register_listener", "framework.bcm_listener", "framework.bcm_listener_stub",
-    "framework.bcm_listener_stub.as_interface", "framework.runtime.load_library", "framework.runtime.load"]
-gone = [p for p in want if p not in have or p in missing]
-print("missing: " + " ".join(gone) if gone else "all %d mapped" % len(want))
+check_rc 'both mods plan with released SDK' 0
+has 'shared next-turn callback is planned' 'gpm.navigation_status.next_turn:' "$out"
+has 'shared navigation status callback is planned' 'gpm.navigation_status.status:' "$out"
+has 'EV relay service is planned' 'relay' "$out"
+has 'EV offload service is planned' 'offload' "$out"
+has 'conditioning command is declared' 'conditioning' "$out"
+# Plan describes conditional declarations even when the setting is false.
+# Inspect published net.rules after Apply to test which rules actually settle.
+has 'wireless firewall declaration remains conditional' '(when settings.aa_firewall)' "$out"
+hasnt 'no hook refusal' "won't load" "$out"
+printf '%s\n' "$out" > "$CASE_DIR/plan.txt"
+eng apply
+check_rc 'both mods apply in host fixture' 0
+has 'both mods remain enabled' 'state published: 2 of 2 mods on' "$out"
+cmp "$CASE_DIR/wireless-settings.json" "$R/data/hmgapi/settings/wireless-carplay-aa.json"
+python3 - "$R" "$FIREWALL" <<'PYTEST'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1]);state=json.loads((root/'data/hmgapi/public/state.json').read_text())
+mods=state['mods']
+assert mods['egmp-aa-ev']['enabled'] is True
+assert mods['wireless-carplay-aa']['enabled'] is True
+assert mods['egmp-aa-ev']['settings']['preconditioning'] is False
+assert mods['wireless-carplay-aa']['settings']['aa_firewall'] is (sys.argv[2]=='true')
+assert mods['wireless-carplay-aa']['settings']['tbt'] is True
+assert mods['wireless-carplay-aa']['settings']['tbt_standard'] is False
+print('ok    published state keeps Wireless settings and EV preconditioning off')
+files=json.loads((root/'data/hmgapi/state/files.json').read_text())
+assert len(files['files']) == 3, files
+assert all(entry.get('mods') == ['wireless-carplay-aa'] for entry in files['files'].values()), files
+print('ok    EV add-on owns no system file changes')
+rules=root/'data/hmgapi/state/net.rules'
+network=rules.read_text() if rules.exists() else ''
+assert ('40515' in network)==(sys.argv[2]=='true'), network
+print('ok    published network rules preserve this car\'s firewall baseline')
+PYTEST
+# Empty patches.json opts the hook-only EV add-on into the released engine's
+# dependency/version checks. It declares no filesystem target. Without it, the
+# SDK silently skips the EV mod's version range in plan/apply.
+# The dependency must remain enabled and be at least the working beta101.
+touch "$R/data/hmgapi/mods/wireless-carplay-aa/.disabled"
+eng plan
+check_rc 'disabled Wireless refuses plan' 3
+has 'disabled dependency explanation' "isn't installed and enabled" "$out"
+rm "$R/data/hmgapi/mods/wireless-carplay-aa/.disabled"
+cp "$R/data/hmgapi/mods/wireless-carplay-aa/mod.json" "$CASE_DIR/wireless.json"
+python3 - "$R/data/hmgapi/mods/wireless-carplay-aa/mod.json" <<'PY'
+import json,sys
+p=sys.argv[1];m=json.load(open(p));m['version']='2.2.0-beta.1';open(p,'w').write(json.dumps(m))
 PY
-)
-    has "${m#$HMGAPI/maps/}: every point the mod uses is mapped" "all " "$r"
+eng plan
+check_rc 'old Wireless refuses plan' 3
+has 'old dependency explanation' 'but wireless-carplay-aa 2.2.0-beta.1 is installed' "$out"
+cp "$CASE_DIR/wireless.json" "$R/data/hmgapi/mods/wireless-carplay-aa/mod.json"
+mv "$R/data/hmgapi/mods/wireless-carplay-aa" "$CASE_DIR/wireless-mod"
+eng plan
+check_rc 'missing Wireless refuses plan' 3
+has 'missing dependency explanation' "isn't installed and enabled" "$out"
+mv "$CASE_DIR/wireless-mod" "$R/data/hmgapi/mods/wireless-carplay-aa"
+# Disabling EV leaves the known-working Wireless feature flags and firewall.
+touch "$R/data/hmgapi/mods/egmp-aa-ev/.disabled"
+eng apply
+check_rc 'EV can be disabled without removing Wireless' 0
+has 'Wireless remains enabled' 'state published: 1 of 2 mods on' "$out"
+cmp "$CASE_DIR/wireless-settings.json" "$R/data/hmgapi/settings/wireless-carplay-aa.json"
+python3 - "$R" "$FIREWALL" <<'PYDISABLED'
+import json,pathlib,sys
+root=pathlib.Path(sys.argv[1]);state=json.loads((root/'data/hmgapi/public/state.json').read_text())
+assert state['mods']['egmp-aa-ev']['enabled'] is False
+wireless=state['mods']['wireless-carplay-aa']
+assert wireless['enabled'] is True
+assert wireless['settings']['aa_firewall'] is (sys.argv[2]=='true')
+assert wireless['settings']['tbt'] is True
+assert wireless['settings']['tbt_standard'] is False
+files=json.loads((root/'data/hmgapi/state/files.json').read_text())
+assert len(files['files'])==3
+assert all(entry.get('mods')==['wireless-carplay-aa'] for entry in files['files'].values())
+rules=root/'data/hmgapi/state/net.rules'
+network=rules.read_text() if rules.exists() else ''
+assert ('40515' in network)==(sys.argv[2]=='true'), network
+print('ok    disabling EV preserves Wireless settings and feature files')
+PYDISABLED
+eng plan
+check_rc 'Wireless-only plan remains valid' 0
+has 'Wireless firewall declaration still conditional' '(when settings.aa_firewall)' "$out"
+hasnt 'EV relay no longer planned' 'egmp-aa-ev/relay' "$out"
+# Without this car's separately installed core map, hooks must fail closed.
+rm "$R/data/hmgapi/mods/egmp-aa-ev/.disabled"
+mv "$R/data/hmgapi/maps/$MAP" "$CASE_DIR/absent-map"
+eng plan
+has 'missing core map keeps EV hooks off' "egmp-aa-ev won't load" "$out"
 done
-
-echo "--- plan on NEEV23 260507:"; sed 's/^/    /' "$T/plan-NEEV23.USA.0000.V015.012.260507.txt"
-
-# the recipe: parses, and no region overlaps the Wireless mod's recipes
-cat > "$T/R.java" <<'J'
-import hmgapi.engine.MemRecipe;
-import java.nio.file.*;
-public class R {
-    public static void main(String[] a) throws Exception {
-        MemRecipe ours = MemRecipe.parse(new String(Files.readAllBytes(Paths.get(a[0]))));
-        System.out.println("recipe " + ours.id + ": " + ours.verifies.size() + " verify, " + ours.patchAt.size() + " patch");
-        for (int i = 1; i < a.length; i++) {
-            MemRecipe o = MemRecipe.parse(new String(Files.readAllBytes(Paths.get(a[i]))));
-            for (long[] x : ours.regions()) for (long[] y : o.regions())
-                if (x[0] < y[1] && y[0] < x[1]) { System.out.println("OVERLAP with " + o.id + " at 0x" + Long.toHexString(x[0])); System.exit(1); }
-            System.out.println("clear of " + o.id);
-        }
-    }
-}
-J
-javac -cp "$CP" -d "$CP" "$T/R.java"
-for ours in "$MOD"/recipes/ev-sensor-*.recipe; do
-    suffix=${ours##*/ev-sensor-}; suffix=${suffix%.recipe}
-    wireless="$HMGAPI/mods/wireless-carplay-aa/recipes/aa-tbt-$suffix.recipe"
-    set +e
-    if [ -f "$wireless" ]; then
-        r=$(java -cp "$CP" R "$ours" "$wireless" 2>&1); rc=$?
-    else
-        r=$(java -cp "$CP" R "$ours" 2>&1); rc=$?
-    fi
-    set -e
-    has "recipe ev-sensor-$suffix parses (4 verify, 3 patch)" "4 verify, 3 patch" "$r"
-    if [ -f "$wireless" ]; then
-        has "recipe ev-sensor-$suffix clear of the matching Wireless recipe" "clear of aa-tbt-$suffix" "$r"
-    fi
-    [ $rc -eq 0 ] || { echo "FAIL  recipe check: $r"; fail=1; }
-done
-exit $fail
+exit "$fail"

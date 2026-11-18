@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "settings": [
+    {
+      "key": "tbt",
+      "type": "toggle",
+      "default": true,
+      "title": "Turn-by-turn on the cluster and HUD",
+      "apply": "rebuild",
+      "description": "Android Auto cluster/HUD directions require a supported native library. Includes an experimental Ioniq 6 CAN 260206 recipe checked off-car; dash output still needs validation. Unknown libraries are skipped. CarPlay remains available with this setting."
+    },
+    {
+      "key": "tbt_standard",
+      "type": "toggle",
+      "default": false,
+      "title": "Android Auto turns in the car's own format (AR HUD arrow, distance bar)",
+      "apply": "restart",
+      "description": "Near each maneuver (about 1,500 ft), Android Auto's turns go to the cluster and HUD as the car's own navigation sends them: turn, U-turn, fork, exit and roundabout types with their angle and the distance bar counting down, which the AR HUD animates; destinations as left, right or ahead. Off: the projection icons, as before. Checked on a US Ioniq 5 with the AR HUD. Takes effect when the head unit restarts. Requires supported Android Auto cluster/HUD directions. Leave off for the initial Ioniq 6 TBT test."
+    },
+    {
+      "key": "bridge",
+      "type": "toggle",
+      "default": true,
+      "title": "Wireless CarPlay (Bluetooth bridge and Wi-Fi sessions)",
+      "apply": "rebuild"
+    },
+    {
+      "key": "audio",
+      "type": "toggle",
+      "default": true,
+      "title": "CarPlay music and Siri over Wi-Fi (AAC, Opus)",
+      "apply": "rebuild"
+    },
+    {
+      "key": "menu",
+      "type": "toggle",
+      "default": true,
+      "title": "Settings > Phone Projection opens Device Connections",
+      "apply": "restart",
+      "description": "A hook in the Settings app (no files changed). US/Canada only; other regions keep the stock choice."
+    },
+    {
+      "key": "usb_drives",
+      "type": "toggle",
+      "default": true,
+      "apply": "restart",
+      "title": "USB drives and hubs don't start wired Android Auto",
+      "description": "A hook in the Android Auto app (no files changed). Without it, a USB drive can block wireless Android Auto until the head unit restarts."
+    },
+    {
+      "key": "aa_firewall",
+      "type": "toggle",
+      "default": false,
+      "title": "Allow wireless Android Auto through the hotspot firewall",
+      "apply": "rebuild",
+      "description": "Experimental for Ioniq 6 CAN 260206. Allows new IPv4 TCP connections to port 40515 only from the car's hotspot subnet. HMG-API manages the rule and removes it when this setting or the mod is disabled. Leave off on cars that connect without it."
+    }
+  ]
+}

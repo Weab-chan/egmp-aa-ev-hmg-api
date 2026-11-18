@@ -1,111 +1,54 @@
-# egmp-aa-ev-feat (HMG-API)
+# Ioniq 6 and Kia EV6 Canada: EV routing for Android Auto
 
-Real EV routing in Google Maps on Android Auto for Hyundai Ioniq 5 and Ioniq 6 Gen5W head units: battery % on arrival, charging stops, realistic charge times, and automatic battery preconditioning on the way to a fast charger.
 
-This fork runs it as a mod for [HMG-API](https://github.com/VysseCodes/HMG-API), the successor of the archived HMG Leafia Plus: nothing on the head unit is changed, and firmware support comes from HMG-API's per-car hook maps. The original NEMESIS + Leafia package is still here ([below](#legacy-nemesis--leafia-package)).
-
-> [!WARNING]
-> **The HMG-API mod hasn't run on a car yet** (checked off the car only). It changes how the car's Android Auto app behaves while it runs and can ask the car to condition the battery; you use it at your own risk. Not affiliated with Hyundai, Kia or Google.
-
-## Requirements
-
-- Hyundai Ioniq 5 (US): NEEV, NEEV23 or NEEV23SE, Gen5W software 260507 or newer
-- Hyundai Ioniq 6 (US): CEEV, Gen5W software 260903
-- [HMG-API](https://github.com/VysseCodes/HMG-API) 1.0.0 or newer, installed through [NEMESIS](https://github.com/xwtk/hmg_nemesis)
-- HMG-API's **Wireless CarPlay + Android Auto** mod, 2.1.0 or newer. HMG-API won't load this mod without it: its turn-by-turn adds Maps' route data, which preconditioning needs
-- The energy model needs a supported Android Auto library build: Ioniq 5 US 260507 or Ioniq 6 US 260903 (see [Limits](#limits))
-
-## Features
-
-- **EV routing:** the head unit sends Maps a vehicle energy model with the battery's live energy, so Maps plans stops and shows arrival %.
-- **Real capacity:** usable capacity is learned from the BMS, not assumed from the new-car 77.4 kWh.
-- **Cold weather:** live outside temperature raises heating and rolling losses in the model.
-- **Charge times:** calibrated on real DC sessions and the car's own estimate, including the slow last 10–20 %.
-- **EV connectors:** Maps is told the car is electric with CCS1 and J1772, for charger filtering.
-- **Live battery data for phone apps:** the battery %, the range the cluster shows and the odometer go to the phone as Android Auto's fuel and odometer data, so apps that read the car's data through Android Auto (A Better Route Planner, for one) show the live battery level. No library patch needed, so it works on any Android Auto library build.
-- **Preconditioning:** when the next stop is a charger over 50 kW within an hour, the car is asked to warm the battery, through HMG-API's reviewed `conditioning` command. The minimum power, the start window, the arrival distance and the starts per route are settings. Off with the mod's setting or the car's own *battery conditioning* setting.
-- **EV logs:** driving and charging, whenever the head unit is on; copied to any USB drive with an `egmp-aa-ev-logs` folder; share them through an [EV log issue](https://github.com/willemcvu/egmp-aa-ev-feat/issues/new?template=log-submission.yml).
-- **Settings** in the HMG-API app: energy model, preconditioning (and its thresholds: chargers faster than 50 kW, start within 60 min, arrived within 200 m, 3 starts per route), live battery data, EV logs. All on by default; the thresholds apply at once, the rest when Android Auto restarts.
-
-## Install
-
-1. **Remove the NEMESIS versions first:** in NEMESIS Manager (press NAV three times), uninstall `aa.ev.model` and HMG Leafia Plus, then reboot. They replace the Android Auto files HMG-API expects stock, and two energy models would go to Maps.
-2. Install [HMG-API](https://github.com/VysseCodes/HMG-API/releases) and its Wireless CarPlay + Android Auto mod.
-3. **Let hooks run:** the Ioniq 6 US 260903 map is verified on a car; the Ioniq 5 maps still need the on-car check. In the HMG-API app's **Settings**, tap **Check the map on this car** (hooks run once it passes and the head unit restarts), or turn on **Try unchecked maps** (at the next restart; the boot guard turns hooks off if the unit fails to start three times). No adb needed. Ioniq 6 support requires an HMG-API build that includes the CEEV US 260903 map.
-4. Download `egmp-aa-ev-<version>.zip` from [Releases](../../releases), put it in a folder `HMGAPI/updates/` on a USB stick, plug it in, and tap **Check USB updates** in the HMG-API app.
-   **Or through NEMESIS:** unzip `egmp-aa-ev-<version>-nemesis.zip` onto an empty USB stick and plug it in, then confirm in NEMESIS. It installs as NEMESIS package `hmgapi.egmp-aa-ev` (needs HMG-API 1.0 or newer and its Wireless CarPlay + Android Auto mod), and HMG-API's engine does the install, so it's the same mod either way. NEMESIS Manager can then update or uninstall it.
-5. The first time it preconditions, HMG-API asks on screen to allow `conditioning` for this mod: allow it.
-
-Updates install the same way. To remove it: HMG-API app → the mod → remove. Details, hook points and logs to check: [hmgapi-mod/README.md](hmgapi-mod/README.md).
-
-### Limits
-
-- **Energy model library builds:** Ioniq 5 US 260507 (`libautoreceiver_infobank.so`, md5 `48ee793a…`) and Ioniq 6 US 260903 (md5 `dbfe7bd2…`). On another build nothing is patched and the model stays off; fuel type, connectors and live battery data still reach Maps. Another build needs a recipe ([`tools/mkrecipe.py`](hmgapi-mod/tools/mkrecipe.py)).
-- **Preconditioning and HMG-API 1.0's checks:** HMG-API refuses a start when the car isn't READY, Battery Conditioning is off, or the pack is already warm (21 °C / 70 °F on an Ioniq 5), and stops a request if the car's indicator doesn't come on within 2 minutes. After such a timeout, automatic starts wait for a manual one. egmp then cancels for that charging stop, and preconditions again after you start conditioning by hand once.
-- **Ioniq 6 calibration:** the Ioniq 6 initially uses the same 77.4-kWh E-GMP battery and charging model as the Ioniq 5. Live BMS energy immediately teaches it the car's usable capacity. Its Ioniq 5 road-load calibration is conservative for the more aerodynamic Ioniq 6; Ioniq 6 EV logs are needed to tune arrival-energy predictions precisely.
-
-What HMG-API offers and lacks for EV routing: [docs/HMG-API-COMPARISON.md](docs/HMG-API-COMPARISON.md).
-
-## EV logs
-
-The head unit records a small log whenever the car is on, driving or charging: battery energy and power, speed, temperatures, climate, charging and Maps' route plan. No location, no full VIN, no times of day. It keeps up to 100 MB, oldest first out.
-
-To collect and share them:
-
-1. Make a folder named `egmp-aa-ev-logs` at the top level of any FAT32/exFAT USB drive.
-2. With the car on, plug the drive into the USB data port. Within about 20 seconds a pop-up says how many logs were copied ("… Safe to remove"). Turn logging off with the mod's *EV logs* setting.
-3. Open an [EV log issue](https://github.com/willemcvu/egmp-aa-ev-feat/issues/new?template=log-submission.yml) and drag the `egmp-*.csv` files from that folder into it. Issues are public.
-
-Logs from different cars, climates and battery ages are what improve the energy model most. Format details: [LOGGING](docs/LOGGING.md).
-
-## Docs
-
-| | |
+| Car | Reviewed firmware |
 |---|---|
-| [ENERGY-MODEL](docs/ENERGY-MODEL.md) | the energy model and its calibration |
-| [PRECONDITIONING](docs/PRECONDITIONING.md) | how preconditioning works |
-| [LOGGING](docs/LOGGING.md) | EV log format and `tools/evlog.py` |
-| [DATA-SOURCES](docs/DATA-SOURCES.md) | vehicle data the head unit exposes |
-| [RESEARCH](docs/RESEARCH.md) | head unit internals and the patch design |
-| [HANDOFF](docs/HANDOFF.md) | developer guide for the NEMESIS package: build, install, troubleshooting |
-| [ROADMAP](docs/ROADMAP.md) | what's next |
-| [HMG-API-COMPARISON](docs/HMG-API-COMPARISON.md) | the HMG-API mod against HMG-API's built-ins: data, features, gaps |
+| Hyundai Ioniq 6 | `CEEV.CAN.0000.V015.011.260206` |
+| Kia EV6 | `CVEV.CAN.0000.V015.011.260206` |
 
-## Building and releasing
+**This is an add-on to the working wireless setup.** It requires HMG-API **1.1.0-beta.1 or newer** and Wireless CarPlay + Android Auto **2.2.0-beta.101 or newer**. Keep the installed wireless mod, its working settings, and the checked car map. This package does not replace them or install a map. The private repository and retained signing identity are unchanged despite its original Ioniq 6 repository name.
 
-The HMG-API mod builds from this repo alone, with an [HMG-API](https://github.com/VysseCodes/HMG-API) checkout next to it (no car files):
+The owner reported that Ioniq 6 **beta.101** works, including the EV add-on, wireless Android Auto and Google Maps dash directions. EV6 wireless AA and dash directions also work with its existing setup. **The new combined beta.102 has not been tested in either car.** Automatic preconditioning, CarPlay and HUD behavior are not claimed as validated.
 
-```sh
-HMGAPI=../HMG-API sh hmgapi-mod/build.sh                       # build/mod/egmp-aa-ev/
-HMGAPI=../HMG-API sh hmgapi-mod/test/run.sh                    # every off-car test
-HMGAPI=../HMG-API sh hmgapi-mod/build.sh ~/hmg-keys/<key>      # + dist/egmp-aa-ev-<version>.zip, signed
-```
+## What changed in beta.102
 
-**Releases** are built by CI ([`.github/workflows/release.yml`](.github/workflows/release.yml)): set `"version"` in `hmgapi-mod/mod.json`, merge, then create a release in GitHub's UI with the tag `v<version>`. CI checks the tag matches, runs the tests, builds the mod signed with the `HMGAPI_AUTHOR_KEY` secret (your HMG-API author key file's contents) and attaches `egmp-aa-ev-<version>.zip` to the release. More: [hmgapi-mod/README.md](hmgapi-mod/README.md#releasing).
+- Both signed metadata and NEMESIS descriptors accept **CEEV and CVEV / CAN / 260206**, with a new version so the installer can distinguish this candidate.
+- The shutdown guard admits the two exact reviewed GPM ODEX fingerprints. Copied EV6 lifecycle classes match the reviewed Ioniq 6 implementation; method-shape checks and the per-source gate remain intact. Unknown fingerprints still leave EV sending off.
+- Existing EV and wireless TBT recipes are tested together for both native-library builds. No new EV patch offsets or bytes were introduced for the EV6.
+- Builds retain the checksum-pinned **HMG-API 1.1.0-beta.1 released SDK**, dependency checks and signing identity.
+- **Automatic preconditioning defaults off. Existing saved settings survive upgrades.** The connected EV6 currently has it saved **on**, so its owner must turn it **off before installing beta.102**. There is no automatic settings reset or migration.
 
-## Legacy: NEMESIS + Leafia package
+See the [Ioniq 6 evidence](docs/CANADIAN-IONIQ6.md), [EV6 evidence](docs/CANADIAN-EV6.md), and [sanitized beta.102 validation record](docs/validation/can-beta102.json). Other model/region/firmware combinations are not admitted by this package.
 
-The original package (`gpm-ev/`, `packages/`, `release/`), for a head unit with NEMESIS and **HMG Leafia Plus v1.0.5** on US 260507 (`NEEV.USA.0000.V015.012.260507`). It modifies the Android Auto app's files: the installer checks every file first and keeps a byte-for-byte backup.
+The EV6's existing compatibility override survives upgrades too. Beta.102 no longer needs that bypass, but it does not automatically remove it or edit the core's settings.
 
-1. Download the `-usb.zip` from [Releases](../../releases) and copy its **contents** to an empty FAT32/exFAT drive.
-2. Car on, plug the drive into a USB data port, tap **Yes** when NEMESIS asks. The head unit restarts when it's done.
+## First test of the combined build
 
-To uninstall: NEMESIS Manager → `aa.ev.model` → uninstall, then reboot; Leafia's files are restored exactly. More in the release's [README.txt](release/README.txt). The release contains no Hyundai or Google files, only small binary deltas that [`lpatch`](third_party/lpatch) applies to your unit's own files.
+1. Before installation, turn **preconditioning OFF** in the existing EV add-on. Confirm it remains off after upgrading. This is necessary on the EV6 because its saved on setting takes precedence over the new-package default.
+2. Keep wireless beta.101 installed and enabled with its working turn-by-turn/firewall settings. The EV6 currently works with the optional firewall rule off; this add-on does not change that setting. Keep the correct checked map for each car.
+3. Put the unopened plain ZIP in `HMGAPI/updates/` on the USB stick. While parked, choose **Check USB updates**. Confirm **EV routing for Android Auto (Ioniq 6 + EV6 Canada test)**, **0.5.1-beta.102**, and recognition of the firmware. A compatibility override must not be needed for either target.
+4. Upgrade the existing `egmp-aa-ev` mod normally using the same retained signer; do not uninstall the working wireless mod. Enable the add-on, Apply and restart when HMG-API requests it. These are owner-operated steps; the build does not perform them.
+5. Reconnect AA and confirm Google Maps directions still reach the dash. Check live battery/range values and EV-routing behavior, then disconnect/reconnect once to validate session cleanup.
+6. Copy `[egmp-aa-ev]`, `EvModelSender`, `EvLiveData`, `EvCar` and `EvPrecond` logs plus installed version/settings. Look for the exact-stock lifecycle guard, native patch read-back and `energy model sent`. A phone UI result alone does not establish every hook's behavior.
 
-Building it patches files from your own head unit (not in this repo); see [HANDOFF](docs/HANDOFF.md) for what goes in `private/` and the toolchain.
+If the installer reports a signature conflict, stop and identify the installed EV add-on's signer. Do not bypass signature checks or remove working wireless. Do not run the legacy `aa.ev.model`/Leafia installer alongside this mod.
 
-```sh
-PY=/path/to/python sh tools/build_all.sh   # build everything
-sh gpm-ev/test/run.sh                      # Java host tests
-bash tools/test_package.sh                 # package install/uninstall sandbox
-sh tools/test_evlog.sh                     # EV log tools
-sh tools/build_release.sh v0.2.0           # USB release zip
-```
+If the earlier `.xml.tmp` rename error recurs, copy the logs before retrying. If AA regresses, disable **egmp-aa-ev**, Apply and restart, leaving the working wireless package installed.
 
-## Credits
+## Scope and limits
 
-[HMG-API](https://github.com/VysseCodes/HMG-API) (VysseCodes), [NEMESIS](https://github.com/xwtk/hmg_nemesis) (xwtk), [HMG Leafia Plus](https://github.com/VysseCodes/HMG-Leafia-Plus) (including `lpatch`, GPL-3.0), [aa-proxy-rs](https://github.com/aa-proxy/aa-proxy-rs), [open-android-auto](https://github.com/mrmees/open-android-auto), [gen5w-preconditioning](https://github.com/paytondevs/gen5w-preconditioning).
+The add-on changes AA process memory and hooks Java methods at runtime. Offline validation cannot guarantee that AA or the head unit will not fail or restart. It does not flash firmware, replace stock APK/library files or add firewall rules. HMG-API stores module files/settings, and the EV logger writes bounded logs. The inherited energy/charging model still needs calibration for each car; working hooks do not establish accurate arrival-charge estimates.
 
-## License
+Preconditioning requires separate validation. Its relay checks current ownership before stopping a request, but the core's separate status and stop calls do not provide an atomic ownership guarantee. Keep it off during this data/routing test. No vehicle-command permission is required for that initial test.
 
-[AGPL-3.0](LICENSE), the same as HMG-API. `third_party/lpatch` stays GPL-3.0 (its own [LICENSE](third_party/lpatch/LICENSE)), which the AGPL allows combining with.
+EV logs can be copied by creating an `egmp-aa-ev-logs` folder on USB. Keep logs private. Public issue links in historical upstream documents are not instructions to publish vehicle data.
+
+## Build and provenance
+
+See [FORK-BUILD.md](hmgapi-mod/FORK-BUILD.md) for the SDK, tests, signing and publication workflow. CI builds/tests this preparation branch and main, but does not publish disposable-key packages for car installation.
+
+Source-only fixtures cover both maps and the relevant wireless metadata/recipes. They are not installable payloads and contain no manufacturer firmware or raw vehicle logs. `BUILD.json` identifies beta.102 validation separately from the earlier Ioniq 6 owner report, and `SHA256SUMS` identifies the exact artifacts. The retained private key stays outside the repository.
+
+This repository continues [AwsomeFox's HMG-API port](https://github.com/AwsomeFox/egmp-aa-ev-hmg-api) of [willemcvu's EGMP project](https://github.com/willemcvu/egmp-aa-ev-feat). Original `gpm-ev/`, `packages/` and legacy tools remain for provenance, not this installation. [ENERGY-MODEL](docs/ENERGY-MODEL.md), [LOGGING](docs/LOGGING.md) and [HMG-API-COMPARISON](docs/HMG-API-COMPARISON.md) retain historical context; the current defaults and validation scope on this page take precedence.
+
+[AGPL-3.0](LICENSE). Existing `third_party/lpatch` retains its GPL-3.0 license. Credit to the original authors, HMG-API, NEMESIS and contributors named in source history.
